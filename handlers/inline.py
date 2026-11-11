@@ -1,14 +1,6 @@
-import html
 
 from aiogram import Router
-from aiogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    InlineQuery,
-    InlineQueryResultArticle,
-    InlineQueryResultCachedPhoto,
-    InputTextMessageContent,
-)
+from aiogram.types import InlineQuery, InlineQueryResultArticle, InputTextMessageContent
 
 import keyboards as kb
 import store
@@ -17,22 +9,29 @@ from handlers.user import avg_of
 router = Router()
 
 
-def _result(a: dict, default_poster):
-    markup = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="▶️ Tomosha qilish", url=kb.start_link(a["code"]))]]
-    )
-    genres = " • ".join(a["genres"][:4]) or "—"
-    desc = f"⭐ {avg_of(a):.1f}  •  📺 {a['eps']} qism\n🎭 {genres}"
-    text = f"🎬 <b>{html.escape(a['title'])}</b>\n🎭 {html.escape(genres)}\n⭐ {avg_of(a):.1f}  •  📺 {a['eps']} qism"
-    poster = a.get("poster_file_id") or default_poster  # poster yo'q bo'lsa — admin qo'ygan standart rasm
-    if poster:
-        return InlineQueryResultCachedPhoto(
-            id=str(a["id"]), photo_file_id=poster, title=a["title"],
-            description=desc, caption=text, reply_markup=markup,
-        )
+def _result(a: dict, default_thumb) -> InlineQueryResultArticle:
+    """Kaworai uslubidagi ro'yxat qatori: poster + sarlavha + 2 qator tavsif.
+
+    Tanlanganda chatga anime HAVOLASI yuboriladi. Botning o'z chatida bot uni ko'rib,
+    havolani o'chiradi va to'liq kartani (poster + tugmalar) chiqaradi; boshqa chatda esa
+    bu bosiladigan havola bo'lib, do'stlarga ulashishga yaraydi.
+    """
+    genres = a["genres"]
+    icon = kb.genre_emoji(genres[0]) if genres else "🎬"
+    desc = (f"⭐ {avg_of(a):.1f}  •  📺 {a['eps']} qism  •  👁 {a['views']}\n"
+            f"🎭 {' • '.join(genres[:4]) or '—'}")
+    kwargs = {}
+    thumb = a.get("thumb_url") or default_thumb
+    if thumb:
+        kwargs["thumbnail_url"] = thumb
+        kwargs["thumbnail_width"] = 200
+        kwargs["thumbnail_height"] = 280
     return InlineQueryResultArticle(
-        id=str(a["id"]), title=a["title"], description=desc,
-        input_message_content=InputTextMessageContent(message_text=text), reply_markup=markup,
+        id=str(a["id"]),
+        title=f"{icon} {a['title']}",
+        description=desc,
+        input_message_content=InputTextMessageContent(message_text=kb.start_link(a["code"])),
+        **kwargs,
     )
 
 
@@ -45,6 +44,6 @@ async def inline(q: InlineQuery):
         items = []
     else:
         items = await store.search(text)  # nom YOKI janr bo'yicha
-    dp = await store.default_poster()
+    dt = await store.default_thumb()
     # Natija hammaga bir xil -> Telegram o'zi ham keshlaydi
-    await q.answer([_result(a, dp) for a in items], cache_time=30, is_personal=False)
+    await q.answer([_result(a, dt) for a in items], cache_time=30, is_personal=False)

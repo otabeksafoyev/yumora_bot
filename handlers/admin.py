@@ -25,7 +25,8 @@ import config
 import db
 import keyboards as kbd
 import store
-from handlers.user import CODE_RE, card_text, esc, send_card
+import thumbs
+from handlers.user import CODE_RE, card_text, esc, fire, send_card
 
 router = Router()
 panel = Router()  # panel tugmalari — holat (FSM) ishlovchilaridan OLDIN tekshiriladi
@@ -110,7 +111,7 @@ def panel_text(uid: int) -> str:
         "📢 <b>Kanallar</b> — majburiy obuna va news kanallar\n"
         "🖼 <b>Standart poster</b> — posteri yo'q animelar uchun rasm\n"
         "👑 <b>Adminlar</b> — yangi admin va uning huquqlari\n\n"
-        "⚡️ /anime <code>ID</code> — boshqaruvni to'g'ridan-to'g'ri ochish\n"
+        "⚡️ /anime <code>ID</code> — boshqaruvni to'g'ridan-to'g'ri ochish\n🖼 /thumbs — eski animelar uchun inline rasmlarni tayyorlash\n"
         "🚫 /ban <code>id</code> · /unban <code>id</code> · 🗑 /delep <code>ID qism</code> · ⏹ /stopcast"
     )
 
@@ -436,7 +437,7 @@ async def add_trailer(m: Message, state: FSMContext):
 
 
 @router.message(AddAnime.media, F.text == B_DONE)
-async def add_finish(m: Message, state: FSMContext):
+async def add_finish(m: Message, state: FSMContext, bot: Bot):
     d = await state.get_data()
     if not (d.get("poster") or d.get("trailer")):
         return await m.answer("❗ Poster yoki treyler — kamida bittasi kerak. Rasm yoki video yuboring.")
@@ -446,6 +447,8 @@ async def add_finish(m: Message, state: FSMContext):
         await state.clear()
         return await m.answer(f"❗ Xato: {esc(e)}", reply_markup=admin_kb(m.from_user.id))
     store.invalidate_anime()
+    if d.get("poster"):
+        fire(thumbs.thumb_for_anime(bot, aid, d["poster"]))  # inline uchun rasm URL (fonda)
     note = ""
     if not d.get("poster") and not await store.default_poster():
         note = ("\n\n⚠️ Poster yo'q va standart poster ham o'rnatilmagan — qidiruvda rasm chiqmaydi. "
@@ -585,7 +588,7 @@ async def manage_cb(c: CallbackQuery, state: FSMContext, bot: Bot):
 
 
 @router.message(EditF.v)
-async def edit_value(m: Message, state: FSMContext):
+async def edit_value(m: Message, state: FSMContext, bot: Bot):
     d = await state.get_data()
     f, aid = d["field"], d["aid"]
     if f == "title" and m.text:
@@ -601,6 +604,9 @@ async def edit_value(m: Message, state: FSMContext):
     else:
         return await m.answer("❗ Noto'g'ri turdagi xabar. " + PROMPTS[f])
     await db.update_anime(aid, f, val)
+    if f == "poster_file_id":
+        await db.update_anime(aid, "thumb_url", None)
+        fire(thumbs.thumb_for_anime(bot, aid, val))
     store.invalidate_anime()
     await state.clear()
     await m.answer("✅ Yangilandi!", reply_markup=admin_kb(m.from_user.id))
@@ -679,12 +685,32 @@ async def news_cb(c: CallbackQuery, bot: Bot):
     await c.message.answer(f"📣 News kanalga yuborildi ✅" if sent else "❗ News kanal yo'q yoki yuborib bo'lmadi (📢 Kanallar).")
 
 
+@panel.message(Command("thumbs"), Perm("poster"))
+async def thumbs_cmd(m: Message, bot: Bot):
+    if not config.IMGBB_API_KEY:
+        return await m.answer("⚠️ <code>IMGBB_API_KEY</code> kiritilmagan. .env ga qo'shing (https://api.imgbb.com).")
+    await m.answer("🖼 Inline rasmlar tayyorlanmoqda… Tugagach xabar beraman.")
+
+    async def job():
+        done, total = await thumbs.backfill(bot)
+        await bot.send_message(m.chat.id, f"✅ Inline rasmlar tayyor: <b>{done}</b> / {total}")
+
+    fire(job())
+
+
 # ═══ 🖼 STANDART POSTER ════════════════════════════════════════
 @router.message(SetPoster.wait, F.photo)
-async def poster_set(m: Message, state: FSMContext):
-    await store.set_default_poster(m.photo[-1].file_id)
+async def poster_set(m: Message, state: FSMContext, bot: Bot):
+    fid = m.photo[-1].file_id
+    url = await thumbs.make_thumb(bot, fid)
+    await store.set_default_poster(fid, url)
     await state.clear()
-    await m.answer("✅ Standart poster o'rnatildi!", reply_markup=admin_kb(m.from_user.id))
+    note = ""
+    if not config.IMGBB_API_KEY:
+        note = "\n\n⚠️ <code>IMGBB_API_KEY</code> kiritilmagan — inline qidiruvda rasm chiqmaydi."
+    elif not url:
+        note = "\n\n⚠️ Inline uchun rasm yuklanmadi (ImgBB). Keyinroq qayta urinib ko'ring."
+    await m.answer(f"✅ Standart poster o'rnatildi!{note}", reply_markup=admin_kb(m.from_user.id))
 
 
 # ═══ 📢 KANALLAR ═══════════════════════════════════════════════

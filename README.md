@@ -12,6 +12,8 @@ aiogram 3 + PostgreSQL (asyncpg). Rangli emoji dizayn.
 - Kartochka: janr, ⭐ reyting, 📺 qismlar, ▶️ 1-qismdan tomosha, 📋 Qismlar ro'yxati, 📤 Ulashish, ⭐ Baho berish
 - Qism bosilsa video PASTDAN yangi xabar bo'lib keladi, oldingi video joyida qoladi
 - Havola: `t.me/bot?start=ID` (kartochka), `ID_5` (5-qismdan)
+- Inline (`@bot ...`): poster-miniatyurali ro'yxat (sarlavha + ⭐ reyting, 📺 qism, 🎭 janr). Tanlansa bot havolani o'chirib, to'liq kartani chiqaradi.
+  Poster-miniatyuralar uchun `.env` ga `IMGBB_API_KEY` kerak (https://api.imgbb.com, bepul). Eski animelar uchun bir marta `/thumbs`.
 
 ## Admin (/admin) — hammasi ID orqali
 - 🆕 Anime qo'shish: ID → nom → janr → poster YOKI treyler → videolarni tashlang (qism raqami avtomatik)

@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS animes (
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE animes ADD COLUMN IF NOT EXISTS trailer_file_id TEXT;
+ALTER TABLE animes ADD COLUMN IF NOT EXISTS thumb_url TEXT;
 ALTER TABLE animes ADD COLUMN IF NOT EXISTS genres TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE animes ADD COLUMN IF NOT EXISTS rating_sum INT NOT NULL DEFAULT 0;
 ALTER TABLE animes ADD COLUMN IF NOT EXISTS rating_count INT NOT NULL DEFAULT 0;
@@ -165,13 +166,19 @@ async def add_anime(code: str, title: str, genres: list[str], poster: str | None
     )
 
 
-_EDITABLE = {"title", "genres", "poster_file_id", "trailer_file_id"}
+_EDITABLE = {"title", "genres", "poster_file_id", "trailer_file_id", "thumb_url"}
 
 
 async def update_anime(aid: int, field: str, value) -> None:
     if field not in _EDITABLE:
         raise ValueError(field)
     await pool.execute(f"UPDATE animes SET {field} = $1 WHERE id = $2", value, aid)
+
+
+async def animes_without_thumb() -> list[dict]:
+    rows = await pool.fetch(
+        "SELECT id, poster_file_id FROM animes WHERE poster_file_id IS NOT NULL AND thumb_url IS NULL ORDER BY id")
+    return [dict(r) for r in rows]
 
 
 async def delete_anime(aid: int) -> None:
@@ -230,7 +237,7 @@ def _like(q: str) -> str:
 
 
 _COLS = (
-    "id, code, title, poster_file_id, genres, views, rating_sum, rating_count, "
+    "id, code, title, poster_file_id, thumb_url, genres, views, rating_sum, rating_count, "
     "(SELECT COUNT(*) FROM episodes e WHERE e.anime_id = animes.id) AS eps"
 )
 

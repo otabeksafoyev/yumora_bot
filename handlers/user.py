@@ -14,6 +14,7 @@ import subs
 
 router = Router()
 CODE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
+LINK_RE = re.compile(r"t\.me/[A-Za-z0-9_]+\?start=([A-Za-z0-9_-]{1,64})")
 DIV = "✨━━━━━━━━━━━━✨"
 EFFECT_CONFETTI = "5046509860389126442"  # Telegram xabar effekti (faqat shaxsiy chatda)
 PAGE_SIZE = 10
@@ -189,6 +190,15 @@ async def start(m: Message, bot: Bot):
 @router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
 async def text_search(m: Message, bot: Bot):
     q = m.text.strip()
+    link = LINK_RE.search(q)
+    if link:  # inline natijadan kelgan havola: o'chirib, kartani chiqaramiz
+        try:
+            await m.delete()
+        except Exception:  # noqa: BLE001
+            pass
+        if not await open_payload(m, bot, link.group(1)):
+            await m.answer("🤷 Bu ID bo'yicha hech narsa topilmadi.")
+        return
     if await open_payload(m, bot, q):
         return
     if len(q) < 2:

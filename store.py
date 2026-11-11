@@ -158,9 +158,15 @@ async def default_poster():
     return await _cached(_misc, "default_poster", lambda: db.get_setting("default_poster"))
 
 
-async def set_default_poster(file_id: str) -> None:
+async def default_thumb():
+    return await _cached(_misc, "default_thumb", lambda: db.get_setting("default_thumb"))
+
+
+async def set_default_poster(file_id: str, thumb_url: str | None = None) -> None:
     await db.set_setting("default_poster", file_id)
+    await db.set_setting("default_thumb", thumb_url)
     _misc.pop("default_poster", None)
+    _misc.pop("default_thumb", None)
     invalidate_anime()
 
 
