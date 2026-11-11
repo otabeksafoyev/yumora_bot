@@ -7,7 +7,6 @@ from aiogram.types import (
     InlineQuery,
     InlineQueryResultArticle,
     InlineQueryResultCachedPhoto,
-    InlineQueryResultsButton,
     InputTextMessageContent,
 )
 
@@ -20,11 +19,11 @@ router = Router()
 
 def _result(a: dict, default_poster):
     markup = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="ᐅ Tomosha qilish", url=kb.start_link(a["code"]))]]
+        inline_keyboard=[[InlineKeyboardButton(text="▶️ Tomosha qilish", url=kb.start_link(a["code"]))]]
     )
     genres = " • ".join(a["genres"][:4]) or "—"
-    desc = f"★ {avg_of(a):.1f}  •  ᐅ {a['eps']} qism\n{genres}"
-    text = f"๏ <b>{html.escape(a['title'])}</b>\n๏ {html.escape(genres)}\n★ {avg_of(a):.1f}  •  ≡ {a['eps']} qism"
+    desc = f"⭐ {avg_of(a):.1f}  •  📺 {a['eps']} qism\n🎭 {genres}"
+    text = f"🎬 <b>{html.escape(a['title'])}</b>\n🎭 {html.escape(genres)}\n⭐ {avg_of(a):.1f}  •  📺 {a['eps']} qism"
     poster = a.get("poster_file_id") or default_poster  # poster yo'q bo'lsa — admin qo'ygan standart rasm
     if poster:
         return InlineQueryResultCachedPhoto(
@@ -47,11 +46,5 @@ async def inline(q: InlineQuery):
     else:
         items = await store.search(text)  # nom YOKI janr bo'yicha
     dp = await store.default_poster()
-    st = await store.stats()
     # Natija hammaga bir xil -> Telegram o'zi ham keshlaydi
-    await q.answer(
-        [_result(a, dp) for a in items], cache_time=30, is_personal=False,
-        button=InlineQueryResultsButton(
-            text=f"● {max(store.online_count, 1)} kishi online  •  ✦ {st['animes']} ta kontent",
-            start_parameter="home"),
-    )
+    await q.answer([_result(a, dp) for a in items], cache_time=30, is_personal=False)

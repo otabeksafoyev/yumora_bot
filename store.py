@@ -25,12 +25,10 @@ BOT_USERNAME = ""
 # ── to'plamlar (startda bazadan yuklanadi) ──────────────────
 known_users: set[int] = set()
 banned: set[int] = set()
-db_admins: set[int] = set()
+db_admins: dict[int, set] = {}
 
 # ── yig'ilib boradigan buferlar ─────────────────────────────
 _active_buf: set[int] = set()
-_online: dict[int, float] = {}
-online_count = 0
 _views_buf: Counter = Counter()
 
 # ── keshlar ─────────────────────────────────────────────────
@@ -44,6 +42,15 @@ _inflight: dict = {}
 
 def is_admin(uid: int) -> bool:
     return uid in config.ADMIN_IDS or uid in db_admins
+
+
+def has_perm(uid: int, perm: str) -> bool:
+    """Asosiy admin (ADMIN_IDS) hammasiga ega; qolganlar — o'zlariga berilgan huquqlar."""
+    if uid in config.ADMIN_IDS:
+        return True
+    if perm == "owner":
+        return False
+    return perm in db_admins.get(uid, ())
 
 
 async def _cached(cache: TTLCache, key, loader: Callable[[], Awaitable]):
@@ -74,7 +81,7 @@ async def _cached(cache: TTLCache, key, loader: Callable[[], Awaitable]):
 async def load_initial() -> None:
     known_users.update(await db.all_user_ids())
     banned.update(await db.banned_ids())
-    db_admins.update(await db.admin_ids())
+    db_admins.update(await db.admins_map())
     log.info("yuklandi: users=%d banned=%d", len(known_users), len(banned))
 
 
@@ -88,7 +95,6 @@ async def register(uid: int) -> None:
             known_users.discard(uid)
             raise
     _active_buf.add(uid)
-    _online[uid] = time.monotonic()
 
 
 # ── anime ───────────────────────────────────────────────────
@@ -148,10 +154,6 @@ async def by_genre(genre: str, page: int, size: int) -> list[dict]:
     return await _cached(_lists, ("g", genre, page, size), lambda: db.by_genre(genre, size + 1, page * size))
 
 
-async def list_all(page: int, size: int) -> list[dict]:
-    return await _cached(_lists, ("l", page, size), lambda: db.list_all(size + 1, page * size))
-
-
 async def default_poster():
     return await _cached(_misc, "default_poster", lambda: db.get_setting("default_poster"))
 
@@ -195,18 +197,9 @@ async def flush() -> None:
             raise
 
 
-def _recount_online() -> None:
-    global online_count
-    cutoff = time.monotonic() - 300
-    for u in [u for u, t in _online.items() if t < cutoff]:
-        del _online[u]
-    online_count = len(_online)
-
-
 async def flush_loop(interval: float = 15.0) -> None:
     while True:
         await asyncio.sleep(interval)
-        _recount_online()
         try:
             await flush()
         except Exception:  # noqa: BLE001

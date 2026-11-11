@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS channels (
     UNIQUE (chat_id, anime_id)
 );
 ALTER TABLE channels ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'sub';
-CREATE TABLE IF NOT EXISTS admins (tg_id BIGINT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS admins (tg_id BIGINT PRIMARY KEY, perms TEXT[] NOT NULL DEFAULT '{}');
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS perms TEXT[] NOT NULL DEFAULT '{}';
 CREATE INDEX IF NOT EXISTS animes_views_idx ON animes (views DESC);
 """
 
@@ -98,8 +99,8 @@ async def banned_ids() -> set[int]:
     return {r["tg_id"] for r in await pool.fetch("SELECT tg_id FROM users WHERE banned")}
 
 
-async def admin_ids() -> set[int]:
-    return {r["tg_id"] for r in await pool.fetch("SELECT tg_id FROM admins")}
+async def admins_map() -> dict[int, set[str]]:
+    return {r["tg_id"]: set(r["perms"]) for r in await pool.fetch("SELECT tg_id, perms FROM admins")}
 
 
 async def add_user(uid: int) -> None:
@@ -135,8 +136,10 @@ async def user_ids_after(last: int, limit: int) -> list[int]:
     return [r["tg_id"] for r in rows]
 
 
-async def add_admin(uid: int) -> None:
-    await pool.execute("INSERT INTO admins VALUES ($1) ON CONFLICT DO NOTHING", uid)
+async def set_admin_perms(uid: int, perms: list[str]) -> None:
+    await pool.execute(
+        "INSERT INTO admins (tg_id, perms) VALUES ($1, $2) "
+        "ON CONFLICT (tg_id) DO UPDATE SET perms = EXCLUDED.perms", uid, perms)
 
 
 async def del_admin(uid: int) -> None:
@@ -169,10 +172,6 @@ async def update_anime(aid: int, field: str, value) -> None:
     if field not in _EDITABLE:
         raise ValueError(field)
     await pool.execute(f"UPDATE animes SET {field} = $1 WHERE id = $2", value, aid)
-
-
-async def recent(limit: int = 8) -> list[dict]:
-    return [dict(r) for r in await pool.fetch("SELECT id, title FROM animes ORDER BY id DESC LIMIT $1", limit)]
 
 
 async def delete_anime(aid: int) -> None:
@@ -247,11 +246,6 @@ async def search(q: str, limit: int = 20) -> list[dict]:
 
 async def top(limit: int = 20) -> list[dict]:
     rows = await pool.fetch(f"SELECT {_COLS} FROM animes ORDER BY views DESC, id DESC LIMIT $1", limit)
-    return [dict(r) for r in rows]
-
-
-async def list_all(limit: int, offset: int) -> list[dict]:
-    rows = await pool.fetch(f"SELECT {_COLS} FROM animes ORDER BY title LIMIT $1 OFFSET $2", limit, offset)
     return [dict(r) for r in rows]
 
 

@@ -14,7 +14,8 @@ import subs
 
 router = Router()
 CODE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
-DIV = "✧───────✧"
+DIV = "✨━━━━━━━━━━━━✨"
+EFFECT_CONFETTI = "5046509860389126442"  # Telegram xabar effekti (faqat shaxsiy chatda)
 PAGE_SIZE = 10
 _bg: set[asyncio.Task] = set()
 
@@ -32,24 +33,24 @@ def fire(coro) -> None:
 def greeting() -> str:
     h = (datetime.utcnow() + timedelta(hours=5)).hour  # O'zbekiston vaqti
     if 5 <= h < 11:
-        return "✧ Xayrli tong"
+        return "🌅 Xayrli tong"
     if 11 <= h < 17:
-        return "☼ Xayrli kun"
+        return "☀️ Xayrli kun"
     if 17 <= h < 22:
-        return "☾ Xayrli kech"
-    return "☾ Xayrli tun"
+        return "🌆 Xayrli kech"
+    return "🌙 Xayrli tun"
 
 
 def stars(avg: float) -> str:
     f = int(round(max(0.0, min(avg, 10.0)) / 10 * 5))
-    return "★" * f + "☆" * (5 - f)
+    return "⭐" * f + "☆" * (5 - f)
 
 
 def bar(done: int, total: int, width: int = 8) -> str:
     if total <= 0:
-        return "▱" * width
+        return "⬜" * width
     f = max(1, int(round(done / total * width))) if done > 0 else 0
-    return "▰" * f + "▱" * (width - f)
+    return "🟩" * f + "⬜" * (width - f)
 
 
 def avg_of(a: dict) -> float:
@@ -76,27 +77,31 @@ async def show(c: CallbackQuery, text: str, markup) -> None:
 
 
 # ── asosiy menyu ────────────────────────────────────────────
-async def send_home(m: Message, user) -> None:
-    name = esc(user.first_name) if user and user.first_name else ""
-    text = (f"<b>{greeting()}, {name}!</b> Bugun nima ko'ramiz?\n{DIV}\n"
-            f"<b>Yumora TV</b> — Anime & Dorama\n● {store.online_count or 1} kishi online")
+async def send_home(m: Message, user, effect: bool = False) -> None:
+    name = esc(user.first_name) if user and user.first_name else "do'st"
+    text = (f"<b>{greeting()}, {name}!</b> 🎉 Bugun nima ko'ramiz?\n{DIV}\n"
+            f"🎌 <b>Yumora TV</b> — Anime & Dorama\n🍿 Yoqimli tomosha!")
     photo = config.START_PHOTO or await store.default_poster()
-    if photo:
+    fx = {"message_effect_id": EFFECT_CONFETTI} if effect else {}
+    for extra in ([fx, {}] if fx else [{}]):
         try:
-            await m.answer_photo(photo, caption=text, reply_markup=kb.home_kb())
+            if photo:
+                await m.answer_photo(photo, caption=text, reply_markup=kb.home_kb(), **extra)
+            else:
+                await m.answer(text, reply_markup=kb.home_kb(), **extra)
             return
         except Exception:  # noqa: BLE001
-            pass
+            continue
     await m.answer(text, reply_markup=kb.home_kb())
 
 
 # ── kartochka ───────────────────────────────────────────────
 def card_text(a: dict, eps_count: int) -> str:
     cnt = a["rating_count"]
-    return (f"๏ <b>{esc(a['title'])}</b>\n{DIV}\n"
-            f"๏ {esc(', '.join(a['genres']) or '—')}\n"
-            f"{stars(avg_of(a))} <b>{avg_of(a):.1f}</b>  •  ◉ {cnt} ovoz\n"
-            f"≡ {eps_count} qism\n№ <code>{a['code']}</code>")
+    return (f"🎬 <b>{esc(a['title'])}</b>\n{DIV}\n"
+            f"🎭 <b>Janr:</b> {esc(', '.join(a['genres']) or '—')}\n"
+            f"{stars(avg_of(a))} <b>{avg_of(a):.1f}</b>  •  👥 {cnt} ovoz\n"
+            f"📺 <b>Qismlar:</b> {eps_count}\n🆔 <code>{a['code']}</code>")
 
 
 async def send_card(bot: Bot, chat_id: int, a: dict, uid: int) -> None:
@@ -120,7 +125,7 @@ async def send_card(bot: Bot, chat_id: int, a: dict, uid: int) -> None:
 # ── qism yuborish ───────────────────────────────────────────
 def ep_caption(a: dict, n: int, numbers: list[int]) -> str:
     total = numbers[-1] if numbers else n
-    return f"ᐅ <b>{esc(a['title'])}</b>  •  {n}-qism\n๏ {bar(n, total)} {n}/{total} qism"
+    return f"▶️ <b>{esc(a['title'])}</b>  •  {n}-qism\n🎞 {bar(n, total)} {n}/{total} qism"
 
 
 async def _strip(msg: Message) -> None:
@@ -134,7 +139,7 @@ async def play(bot: Bot, uid: int, chat_id: int, a: dict, number: int | None, ol
     """Qismni YANGI xabar sifatida yuboradi — oldingi video joyida qoladi."""
     eps = await store.episodes(a["id"])
     if not eps.numbers:
-        await bot.send_message(chat_id, "◌ Qismlar hali qo'shilmagan.")
+        await bot.send_message(chat_id, "⏳ Qismlar hali qo'shilmagan.")
         return
     if number not in eps.files:
         number = eps.numbers[0]
@@ -142,7 +147,7 @@ async def play(bot: Bot, uid: int, chat_id: int, a: dict, number: int | None, ol
     miss = await subs.missing(bot, uid, a["id"])
     if miss:
         await bot.send_message(
-            chat_id, "ᐅ <b>Davom etish uchun kanallarga obuna bo'ling</b>, so'ng «Tekshirish» ni bosing:",
+            chat_id, "🔔 <b>Davom etish uchun kanallarga obuna bo'ling</b>, so'ng «✅ Tekshirish» ni bosing:",
             reply_markup=kb.sub_kb(miss, a["id"], number))
         return
 
@@ -177,8 +182,8 @@ async def start(m: Message, bot: Bot):
     if len(parts) == 2 and parts[1] != "home":
         if await open_payload(m, bot, parts[1]):
             return
-        await m.answer("⌕ Bu kod bo'yicha hech narsa topilmadi.")
-    await send_home(m, m.from_user)
+        await m.answer("🤷 Bu ID bo'yicha hech narsa topilmadi.")
+    await send_home(m, m.from_user, effect=True)
 
 
 @router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
@@ -187,12 +192,12 @@ async def text_search(m: Message, bot: Bot):
     if await open_payload(m, bot, q):
         return
     if len(q) < 2:
-        return await m.answer("⌕ Kamida 2 ta harf yozing.")
+        return await m.answer("✏️ Kamida 2 ta harf yozing.")
     items = await store.search(q)
     if not items:
-        return await m.answer("⌕ Hech narsa topilmadi. Boshqacha yozib ko'ring yoki janr bo'yicha qidiring.",
+        return await m.answer("🤷 Hech narsa topilmadi. Boshqacha yozib ko'ring yoki janr bo'yicha qidiring.",
                               reply_markup=kb.back_home())
-    await m.answer(f"⌕ Topildi: <b>{len(items)}</b> ta", reply_markup=kb.list_kb(items, 0, False, "x"))
+    await m.answer("🔎 <b>Natijalar:</b>", reply_markup=kb.list_kb(items, 0, False, "x"))
 
 
 # ── menyu / ro'yxatlar / janr ───────────────────────────────
@@ -203,12 +208,12 @@ async def noop(c: CallbackQuery):
 
 @router.callback_query(F.data == "edge")
 async def edge(c: CallbackQuery):
-    await c.answer("Bu chekka sahifa", show_alert=False)
+    await c.answer("📄 Bu oxirgi sahifa")
 
 
 @router.callback_query(F.data == "noep")
 async def noep(c: CallbackQuery):
-    await c.answer("Qismlar tez orada qo'shiladi", show_alert=True)
+    await c.answer("⏳ Qismlar tez orada qo'shiladi", show_alert=True)
 
 
 @router.callback_query(F.data == "menu")
@@ -220,12 +225,12 @@ async def menu(c: CallbackQuery):
 @router.callback_query(F.data == "help")
 async def help_(c: CallbackQuery):
     await c.answer()
-    await show(c, f"ⓘ <b>Qo'llanma</b>\n{DIV}\n"
-                  "⌕ Anime nomini yoki kodini yozing\n"
-                  "⌕ Janr bo'yicha qidirish tugmasidan foydalaning\n"
-                  "ᐅ Qismni bossangiz video pastdan yuboriladi, oldingisi joyida qoladi\n"
-                  "★ Anime tugagach baho bering\n"
-                  "↗ Do'stlaringizga ulashing", kb.back_home())
+    await show(c, f"💡 <b>Qo'llanma</b>\n{DIV}\n"
+                  "🔍 Anime nomini yoki ID sini yozing\n"
+                  "🔎 «Janr bo'yicha qidirish» tugmasidan foydalaning\n"
+                  "▶️ Qismni bossangiz video pastdan yuboriladi, oldingisi joyida qoladi\n"
+                  "⭐ Yoqqan animega baho bering\n"
+                  "📤 Do'stlaringizga ulashing", kb.back_home())
 
 
 @router.callback_query(F.data == "gen")
@@ -233,8 +238,8 @@ async def genres(c: CallbackQuery):
     await c.answer()
     gl = await store.genres()
     if not gl:
-        return await show(c, "◌ Hozircha janrlar yo'q.", kb.back_home())
-    await show(c, "⌕ <b>Janrni tanlang:</b>", kb.genres_kb(gl))
+        return await show(c, "⏳ Hozircha janrlar yo'q.", kb.back_home())
+    await show(c, "🔎 <b>Janrni tanlang:</b>", kb.genres_kb(gl))
 
 
 @router.callback_query(F.data.startswith("gn:"))
@@ -244,25 +249,15 @@ async def by_genre(c: CallbackQuery):
     await c.answer()
     items = await store.by_genre(g, page, PAGE_SIZE)
     has_next = len(items) > PAGE_SIZE
-    await show(c, f"๏ <b>{esc(g)}</b>", kb.list_kb(items[:PAGE_SIZE], page, has_next, f"gn:{g}",
-                                                    ("ᐊ Janrlar", "gen")))
-
-
-@router.callback_query(F.data.startswith("ls:"))
-async def list_all(c: CallbackQuery):
-    page = int(c.data.split(":")[1])
-    await c.answer()
-    items = await store.list_all(page, PAGE_SIZE)
-    if not items:
-        return await show(c, "◌ Hozircha anime yo'q.", kb.back_home())
-    await show(c, "๏ <b>Barcha animelar</b>", kb.list_kb(items[:PAGE_SIZE], page, len(items) > PAGE_SIZE, "ls"))
+    await show(c, f"{kb.genre_emoji(g)} <b>{esc(g)}</b>", kb.list_kb(items[:PAGE_SIZE], page, has_next, f"gn:{g}",
+                                                    ("◀️ Janrlar", "gen")))
 
 
 @router.callback_query(F.data == "top")
 async def top(c: CallbackQuery):
     await c.answer()
     items = await store.top(10)
-    await show(c, "★ <b>Eng mashhur</b>", kb.list_kb(items, 0, False, "x"))
+    await show(c, "🔥 <b>Eng mashhur</b>", kb.list_kb(items, 0, False, "x"))
 
 
 # ── kartochka / qismlar ─────────────────────────────────────
@@ -297,8 +292,8 @@ async def episode_list(c: CallbackQuery):
         return
     eps = await store.episodes(a["id"])
     if not eps.numbers:
-        return await c.answer("Qismlar yo'q", show_alert=True)
-    await c.message.answer(f"≡ <b>{esc(a['title'])}</b>\nQismni tanlang:", reply_markup=kb.episodes_kb(a, eps.numbers, None, 0))
+        return await c.answer("⏳ Qismlar yo'q", show_alert=True)
+    await c.message.answer(f"📋 <b>{esc(a['title'])}</b>\n👇 Qismni tanlang:", reply_markup=kb.episodes_kb(a, eps.numbers, None, 0))
 
 
 @router.callback_query(F.data.startswith("p:"))
@@ -331,8 +326,8 @@ async def check_cb(c: CallbackQuery, bot: Bot):
     if not a:
         return await c.answer()
     if await subs.missing(bot, c.from_user.id, a["id"]):
-        return await c.answer("Hali hamma kanalga obuna bo'lmadingiz", show_alert=True)
-    await c.answer("✓")
+        return await c.answer("❗ Hali hamma kanalga obuna bo'lmadingiz", show_alert=True)
+    await c.answer("✅")
     try:
         await c.message.delete()
     except Exception:  # noqa: BLE001
@@ -347,9 +342,9 @@ async def rate_start(c: CallbackQuery):
     aid = int(c.data.split(":")[1])
     old = await db.user_rating(aid, c.from_user.id)
     if old:
-        return await c.answer(f"✓ Siz allaqachon baho bergansiz: {old}/10", show_alert=True)
+        return await c.answer(f"✅ Siz allaqachon baho bergansiz: {old}/10", show_alert=True)
     await c.answer()
-    await c.message.answer("★ <b>Anime uchun baho bering (1-10):</b>\n\n1 = Yomon  |  5 = O'rtacha  |  10 = A'lo",
+    await c.message.answer("⭐ <b>Anime uchun baho bering (1-10):</b>\n\n😕 1 = Yomon  |  😐 5 = O'rtacha  |  🤩 10 = A'lo",
                            reply_markup=kb.rate_kb(aid))
 
 
@@ -362,19 +357,19 @@ async def rate_set(c: CallbackQuery):
         return await c.answer()
     row = await db.rate(aid, c.from_user.id, score)
     if row is None:
-        return await c.answer("✓ Siz allaqachon baho bergansiz", show_alert=True)
+        return await c.answer("✅ Siz allaqachon baho bergansiz", show_alert=True)
     a = await store.anime_by_id(aid)
     if a:
         store.forget(a)
     avg = row["rating_sum"] / row["rating_count"]
     try:
         await c.message.edit_text(
-            f"✓ <b>Baho qabul qilindi!</b>\n\n๏ <b>{esc(a['title']) if a else ''}</b>\n"
-            f"★ Sizning bahoyingiz: <b>{score}/10</b>\n◈ O'rtacha reyting: <b>{avg:.1f}/10</b>",
+            f"🎉 <b>Baho qabul qilindi!</b>\n\n🎬 <b>{esc(a['title']) if a else ''}</b>\n"
+            f"⭐ Sizning bahoyingiz: <b>{score}/10</b>\n📊 O'rtacha reyting: <b>{avg:.1f}/10</b>",
             reply_markup=kb.back_home())
     except Exception:  # noqa: BLE001
         pass
-    await c.answer(f"★ {score}/10 — Rahmat!", show_alert=True)
+    await c.answer(f"🤩 {score}/10 — Rahmat!", show_alert=True)
 
 
 @router.callback_query(F.data == "rc")
