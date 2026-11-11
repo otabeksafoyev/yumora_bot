@@ -7,29 +7,32 @@ from aiogram.types import (
     InlineQuery,
     InlineQueryResultArticle,
     InlineQueryResultCachedPhoto,
+    InlineQueryResultsButton,
     InputTextMessageContent,
 )
 
+import keyboards as kb
 import store
+from handlers.user import avg_of
 
 router = Router()
 
 
-def _result(a: dict):
-    link = f"https://t.me/{store.BOT_USERNAME}?start={a['code']}"
+def _result(a: dict, default_poster):
     markup = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="▶️ Tomosha qilish", url=link)]]
+        inline_keyboard=[[InlineKeyboardButton(text="ᐅ Tomosha qilish", url=kb.start_link(a["code"]))]]
     )
-    title = a["title"]
-    desc = f"📼 {a['eps']} qism • 👁 {a['views']}"
-    text = f"🎬 <b>{html.escape(title)}</b>\n📼 {a['eps']} qism"
-    if a.get("poster_file_id"):
+    genres = " • ".join(a["genres"][:4]) or "—"
+    desc = f"★ {avg_of(a):.1f}  •  ᐅ {a['eps']} qism\n{genres}"
+    text = f"๏ <b>{html.escape(a['title'])}</b>\n๏ {html.escape(genres)}\n★ {avg_of(a):.1f}  •  ≡ {a['eps']} qism"
+    poster = a.get("poster_file_id") or default_poster  # poster yo'q bo'lsa — admin qo'ygan standart rasm
+    if poster:
         return InlineQueryResultCachedPhoto(
-            id=str(a["id"]), photo_file_id=a["poster_file_id"], title=title,
+            id=str(a["id"]), photo_file_id=poster, title=a["title"],
             description=desc, caption=text, reply_markup=markup,
         )
     return InlineQueryResultArticle(
-        id=str(a["id"]), title=title, description=desc,
+        id=str(a["id"]), title=a["title"], description=desc,
         input_message_content=InputTextMessageContent(message_text=text), reply_markup=markup,
     )
 
@@ -42,6 +45,13 @@ async def inline(q: InlineQuery):
     elif len(text) < 2:
         items = []
     else:
-        items = await store.search(text)
+        items = await store.search(text)  # nom YOKI janr bo'yicha
+    dp = await store.default_poster()
+    st = await store.stats()
     # Natija hammaga bir xil -> Telegram o'zi ham keshlaydi
-    await q.answer([_result(a) for a in items], cache_time=30, is_personal=False)
+    await q.answer(
+        [_result(a, dp) for a in items], cache_time=30, is_personal=False,
+        button=InlineQueryResultsButton(
+            text=f"● {max(store.online_count, 1)} kishi online  •  ✦ {st['animes']} ta kontent",
+            start_parameter="home"),
+    )

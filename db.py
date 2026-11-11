@@ -19,9 +19,24 @@ CREATE TABLE IF NOT EXISTS animes (
     code           TEXT NOT NULL UNIQUE,
     title          TEXT NOT NULL,
     poster_file_id TEXT,
+    trailer_file_id TEXT,
+    genres         TEXT[] NOT NULL DEFAULT '{}',
     views          BIGINT NOT NULL DEFAULT 0,
+    rating_sum     INT NOT NULL DEFAULT 0,
+    rating_count   INT NOT NULL DEFAULT 0,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE animes ADD COLUMN IF NOT EXISTS trailer_file_id TEXT;
+ALTER TABLE animes ADD COLUMN IF NOT EXISTS genres TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE animes ADD COLUMN IF NOT EXISTS rating_sum INT NOT NULL DEFAULT 0;
+ALTER TABLE animes ADD COLUMN IF NOT EXISTS rating_count INT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS ratings (
+    anime_id INT NOT NULL REFERENCES animes(id) ON DELETE CASCADE,
+    user_id  BIGINT NOT NULL,
+    score    SMALLINT NOT NULL,
+    PRIMARY KEY (anime_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS episodes (
     anime_id INT NOT NULL REFERENCES animes(id) ON DELETE CASCADE,
     number   INT NOT NULL,
@@ -34,8 +49,10 @@ CREATE TABLE IF NOT EXISTS channels (
     url      TEXT NOT NULL,
     title    TEXT NOT NULL,
     anime_id INT REFERENCES animes(id) ON DELETE CASCADE,  -- NULL = hamma anime uchun
+    kind     TEXT NOT NULL DEFAULT 'sub',                   -- sub = majburiy obuna, news = e'lon kanali
     UNIQUE (chat_id, anime_id)
 );
+ALTER TABLE channels ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'sub';
 CREATE TABLE IF NOT EXISTS admins (tg_id BIGINT PRIMARY KEY);
 CREATE INDEX IF NOT EXISTS animes_views_idx ON animes (views DESC);
 """
@@ -137,17 +154,44 @@ async def anime_by_id(aid: int):
     return dict(r) if r else None
 
 
-async def add_anime(code: str, title: str, poster: str | None) -> int:
+async def add_anime(code: str, title: str, genres: list[str], poster: str | None, trailer: str | None) -> int:
     return await pool.fetchval(
-        "INSERT INTO animes (code, title, poster_file_id) VALUES ($1, $2, $3) RETURNING id",
-        code,
-        title,
-        poster,
+        "INSERT INTO animes (code, title, genres, poster_file_id, trailer_file_id) "
+        "VALUES ($1, $2, $3, $4, $5) RETURNING id",
+        code, title, genres, poster, trailer,
     )
+
+
+_EDITABLE = {"title", "genres", "poster_file_id", "trailer_file_id"}
+
+
+async def update_anime(aid: int, field: str, value) -> None:
+    if field not in _EDITABLE:
+        raise ValueError(field)
+    await pool.execute(f"UPDATE animes SET {field} = $1 WHERE id = $2", value, aid)
+
+
+async def recent(limit: int = 8) -> list[dict]:
+    return [dict(r) for r in await pool.fetch("SELECT id, title FROM animes ORDER BY id DESC LIMIT $1", limit)]
 
 
 async def delete_anime(aid: int) -> None:
     await pool.execute("DELETE FROM animes WHERE id = $1", aid)
+
+
+async def rate(aid: int, uid: int, score: int):
+    """Birinchi marta baho bergan bo'lsa (sum, count) qaytaradi, aks holda None."""
+    return await pool.fetchrow(
+        "WITH ins AS (INSERT INTO ratings (anime_id, user_id, score) VALUES ($1, $2, $3) "
+        "ON CONFLICT DO NOTHING RETURNING 1) "
+        "UPDATE animes SET rating_sum = rating_sum + $3, rating_count = rating_count + 1 "
+        "WHERE id = $1 AND EXISTS (SELECT 1 FROM ins) RETURNING rating_sum, rating_count",
+        aid, uid, score,
+    )
+
+
+async def user_rating(aid: int, uid: int):
+    return await pool.fetchval("SELECT score FROM ratings WHERE anime_id=$1 AND user_id=$2", aid, uid)
 
 
 async def episodes_of(aid: int) -> dict[int, str]:
@@ -186,25 +230,64 @@ def _like(q: str) -> str:
     return q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+_COLS = (
+    "id, code, title, poster_file_id, genres, views, rating_sum, rating_count, "
+    "(SELECT COUNT(*) FROM episodes e WHERE e.anime_id = animes.id) AS eps"
+)
+
+
 async def search(q: str, limit: int = 20) -> list[dict]:
     rows = await pool.fetch(
-        "SELECT id, code, title, poster_file_id, views, "
-        "(SELECT COUNT(*) FROM episodes e WHERE e.anime_id = animes.id) AS eps "
-        "FROM animes WHERE title ILIKE '%' || $1 || '%' ORDER BY views DESC LIMIT $2",
-        _like(q),
-        limit,
+        f"SELECT {_COLS} FROM animes WHERE title ILIKE '%' || $1 || '%' "
+        "OR array_to_string(genres, ' ') ILIKE '%' || $1 || '%' ORDER BY views DESC LIMIT $2",
+        _like(q), limit,
     )
     return [dict(r) for r in rows]
 
 
 async def top(limit: int = 20) -> list[dict]:
+    rows = await pool.fetch(f"SELECT {_COLS} FROM animes ORDER BY views DESC, id DESC LIMIT $1", limit)
+    return [dict(r) for r in rows]
+
+
+async def list_all(limit: int, offset: int) -> list[dict]:
+    rows = await pool.fetch(f"SELECT {_COLS} FROM animes ORDER BY title LIMIT $1 OFFSET $2", limit, offset)
+    return [dict(r) for r in rows]
+
+
+async def by_genre(genre: str, limit: int, offset: int) -> list[dict]:
     rows = await pool.fetch(
-        "SELECT id, code, title, poster_file_id, views, "
-        "(SELECT COUNT(*) FROM episodes e WHERE e.anime_id = animes.id) AS eps "
-        "FROM animes ORDER BY views DESC, id DESC LIMIT $1",
-        limit,
+        f"SELECT {_COLS} FROM animes WHERE $1 = ANY(genres) ORDER BY views DESC, title LIMIT $2 OFFSET $3",
+        genre, limit, offset,
     )
     return [dict(r) for r in rows]
+
+
+async def genres(limit: int = 40) -> list[tuple[str, int]]:
+    rows = await pool.fetch(
+        "SELECT g, COUNT(*) AS n FROM animes, unnest(genres) g GROUP BY g ORDER BY n DESC, g LIMIT $1", limit
+    )
+    return [(r["g"], r["n"]) for r in rows]
+
+
+async def get_setting(key: str):
+    return await pool.fetchval("SELECT value FROM settings WHERE key = $1", key)
+
+
+async def set_setting(key: str, value: str | None) -> None:
+    await pool.execute(
+        "INSERT INTO settings (key, value) VALUES ($1, $2) "
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", key, value,
+    )
+
+
+async def dump() -> dict:
+    return {
+        "animes": [dict(r) for r in await pool.fetch("SELECT * FROM animes ORDER BY id")],
+        "episodes": [dict(r) for r in await pool.fetch("SELECT * FROM episodes ORDER BY anime_id, number")],
+        "channels": [dict(r) for r in await pool.fetch("SELECT * FROM channels ORDER BY id")],
+        "settings": [dict(r) for r in await pool.fetch("SELECT * FROM settings")],
+    }
 
 
 async def stats() -> dict:
@@ -224,16 +307,13 @@ async def channels() -> list[dict]:
     return [dict(r) for r in await pool.fetch("SELECT * FROM channels ORDER BY id")]
 
 
-async def add_channel(chat_id: int, url: str, title: str, anime_id: int | None) -> None:
+async def add_channel(chat_id: int, url: str, title: str, anime_id: int | None, kind: str = "sub") -> None:
     await pool.execute(
         "DELETE FROM channels WHERE chat_id = $1 AND anime_id IS NOT DISTINCT FROM $2", chat_id, anime_id
     )
     await pool.execute(
-        "INSERT INTO channels (chat_id, url, title, anime_id) VALUES ($1, $2, $3, $4)",
-        chat_id,
-        url,
-        title,
-        anime_id,
+        "INSERT INTO channels (chat_id, url, title, anime_id, kind) VALUES ($1, $2, $3, $4, $5)",
+        chat_id, url, title, anime_id, kind,
     )
 
 

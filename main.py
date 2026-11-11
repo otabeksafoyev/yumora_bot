@@ -43,7 +43,7 @@ async def main() -> None:
     dp.callback_query.outer_middleware(gate)
     dp.inline_query.outer_middleware(gate)
     dp.errors.register(on_error)
-    dp.include_routers(admin.router, inline.router, user.router)  # admin birinchi: FSM holatlari ustun
+    dp.include_routers(admin.panel, admin.router, inline.router, user.router)  # admin birinchi: FSM holatlari ustun
 
     flusher = asyncio.create_task(store.flush_loop())
     try:

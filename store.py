@@ -29,6 +29,8 @@ db_admins: set[int] = set()
 
 # ── yig'ilib boradigan buferlar ─────────────────────────────
 _active_buf: set[int] = set()
+_online: dict[int, float] = {}
+online_count = 0
 _views_buf: Counter = Counter()
 
 # ── keshlar ─────────────────────────────────────────────────
@@ -86,6 +88,7 @@ async def register(uid: int) -> None:
             known_users.discard(uid)
             raise
     _active_buf.add(uid)
+    _online[uid] = time.monotonic()
 
 
 # ── anime ───────────────────────────────────────────────────
@@ -130,7 +133,41 @@ async def stats() -> dict:
 
 async def channels_for(anime_id: int) -> list[dict]:
     allch = await _cached(_misc, "channels", db.channels)
-    return [c for c in allch if c["anime_id"] is None or c["anime_id"] == anime_id]
+    return [c for c in allch if c["kind"] == "sub" and (c["anime_id"] is None or c["anime_id"] == anime_id)]
+
+
+async def news_channels() -> list[dict]:
+    return [c for c in await _cached(_misc, "channels", db.channels) if c["kind"] == "news"]
+
+
+async def genres() -> list:
+    return await _cached(_lists, "genres", db.genres)
+
+
+async def by_genre(genre: str, page: int, size: int) -> list[dict]:
+    return await _cached(_lists, ("g", genre, page, size), lambda: db.by_genre(genre, size + 1, page * size))
+
+
+async def list_all(page: int, size: int) -> list[dict]:
+    return await _cached(_lists, ("l", page, size), lambda: db.list_all(size + 1, page * size))
+
+
+async def default_poster():
+    return await _cached(_misc, "default_poster", lambda: db.get_setting("default_poster"))
+
+
+async def set_default_poster(file_id: str) -> None:
+    await db.set_setting("default_poster", file_id)
+    _misc.pop("default_poster", None)
+    invalidate_anime()
+
+
+def forget(anime: dict) -> None:
+    """Bitta anime keshini tozalash (masalan, baho berilgandan keyin)."""
+    _anime_id.pop(anime["id"], None)
+    _anime_code.pop(anime["code"], None)
+    for k in [k for k in _lists if k != "genres"]:
+        _lists.pop(k, None)
 
 
 def invalidate_channels() -> None:
@@ -158,9 +195,18 @@ async def flush() -> None:
             raise
 
 
+def _recount_online() -> None:
+    global online_count
+    cutoff = time.monotonic() - 300
+    for u in [u for u, t in _online.items() if t < cutoff]:
+        del _online[u]
+    online_count = len(_online)
+
+
 async def flush_loop(interval: float = 15.0) -> None:
     while True:
         await asyncio.sleep(interval)
+        _recount_online()
         try:
             await flush()
         except Exception:  # noqa: BLE001
