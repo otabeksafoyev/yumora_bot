@@ -18,6 +18,3 @@ DB_POOL_MAX = int(os.getenv("DB_POOL_MAX", "15") or 15)
 
 # Telegram broadcast chegarasi ~30 xabar/soniya. 25 — xavfsiz qiymat.
 BROADCAST_RATE = int(os.getenv("BROADCAST_RATE", "25") or 25)
-
-# Inline qidiruvdagi poster-miniatyuralar uchun (https://api.imgbb.com — bepul kalit). Bo'sh bo'lsa rasm chiqmaydi.
-IMGBB_API_KEY = os.getenv("IMGBB_API_KEY", "").strip()
