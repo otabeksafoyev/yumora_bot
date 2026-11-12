@@ -1,37 +1,35 @@
-# Anime bot (oddiy, 200k user uchun)
+# Yumora TV bot
 
-aiogram 3 + PostgreSQL (asyncpg). Teg, mood, reyting, tavsif, yil, status — YO'Q.
-Faqat: nom, kod, poster (ixtiyoriy), qismlar.
+aiogram 3 + PostgreSQL (asyncpg). Rangli emoji dizayn.
 
 ## Ishga tushirish
-1. `cp .env.example .env` va to'ldiring (BOT_TOKEN, DATABASE_URL, ADMIN_IDS)
+1. `cp .env.example .env` → BOT_TOKEN, DATABASE_URL, ADMIN_IDS (asosiy adminlar)
 2. `pip install -r requirements.txt`
-3. `python main.py` (Railway: start command shu, jadvallar o'zi yaratiladi)
+3. `python main.py` (jadvallar o'zi yaratiladi / eski baza o'zi yangilanadi)
 
 ## Foydalanuvchi
-- Anime nomini yozadi / kodini yozadi / `t.me/bot?start=kod` / `kod_5` (5-qismdan)
-- Inline: `@bot nom` (poster bilan chiqadi)
-- Qism tugmalari 20 tadan sahifalanadi, qism almashganda xabar tahrirlanadi (yangi xabar yo'q)
+- /start: salom + rasm + konfetti effekti, 🔎 Janr bo'yicha qidirish, 🔥 Eng mashhur, 🔍 Nom bo'yicha (inline), 💡 Yordam
+- Kartochka: janr, ⭐ reyting, 📺 qismlar, ▶️ 1-qismdan tomosha, 📋 Qismlar ro'yxati, 📤 Ulashish, ⭐ Baho berish
+- Qism bosilsa video PASTDAN yangi xabar bo'lib keladi, oldingi video joyida qoladi
+- Havola: `t.me/bot?start=ID` (kartochka), `ID_5` (5-qismdan)
+- Inline (`@bot ...`): poster-miniatyurali ro'yxat (sarlavha + ⭐ reyting, 📺 qism, 🎭 janr). Tanlansa bot havolani o'chirib, to'liq kartani chiqaradi.
+  Poster-miniatyuralar uchun `.env` ga `IMGBB_API_KEY` kerak (https://api.imgbb.com, bepul). Eski animelar uchun bir marta `/thumbs`.
 
-## Admin (/admin)
-- ➕ Anime: kod → nom → poster → darhol videolarni ketma-ket tashlang (/done)
-- 🎞 Qismlar: mavjud animega qism qo'shish (sarlavhada raqam bo'lsa shu raqam)
-- /delep kod qism · 🗑 anime o'chirish
-- 📢 Kanallar: hamma anime uchun yoki bitta anime uchun (2-qatorga kod)
-- 📣 Xabar yuborish (matn/rasm/video), /stopcast
-- /ban /unban, /addadmin /deladmin, 📊 statistika
-- UPLOAD_CHANNEL_ID: kanalga video + caption `id:kod` `qism:5` tashlansa avtomat saqlanadi
+## Admin (/admin) — hammasi ID orqali
+- 🆕 Anime qo'shish: ID → nom → janr → poster YOKI treyler → videolarni tashlang (qism raqami avtomatik)
+- 🎞 Qism qo'shish: anime ID → videolarni tashlang
+- 🛠 Anime boshqaruv: anime ID → ✏️ nom, 🎭 janr, 🖼 poster, 🎥 treyler, 🎞 qism qo'shish, 🗑 qism o'chirish,
+  👁 ko'rish (yuborish), 📣 news e'lon, 🗑 animeni o'chirish. Tezkor: `/anime ID`
+- 👑 Adminlar (faqat asosiy admin): admin Telegram ID si → huquqlarni bosib belgilash (✅/⬜):
+  anime qo'shish, qism qo'shish, boshqaruv, kanallar, xabar yuborish, statistika, zaxira, standart poster, ban.
+  Admin faqat o'ziga berilgan tugmalarni ko'radi; o'zgarish darhol kuchga kiradi.
+- 📢 Kanallar, 🖼 Standart poster, 📣 Xabar yuborish, 📊 Statistika, 💾 Baza zaxira
+- Har bir jarayonda ❌ Bekor qilish
 
-## Nega qotmaydi
-- Issiq yo'l (start → qism → qism almashtirish) bazaga murojaat qilmaydi: anime/qismlar TTL keshda
-- Single-flight: kesh eskirganda 2000 ta parallel so'rovga 1 ta SQL
-- Ko'rishlar va "oxirgi faollik" xotirada yig'ilib, 15 soniyada bitta UPDATE bilan yoziladi
-- User/ban/admin tekshiruvi xotiradagi set (200k user startda 0.1s da yuklanadi)
-- Obuna tekshiruvi: natija 10 daqiqa keshlanadi, timeout 4s, xatoda user to'silmaydi
-- Antispam: user boshiga 0.6s, flood-wait bo'lsa avtomatik kutib qayta uradi
-- Broadcast: 25 xabar/s (Telegram chegarasi ~30), bloklaganlar avtomatik belgilanadi
-  (200k user ≈ 2.2 soat, fonda ishlaydi, bot javob berishda davom etadi)
-- Qidiruv: pg_trgm indeks
-
-## Cheklov
-Bitta jarayon (polling). Bir vaqtda 1000+ so'rov/s bo'lsa — webhook + kuchliroq server kerak.
+## Yuklash kanali (UPLOAD_CHANNEL_ID)
+- Bot kanalda ADMIN bo'lishi shart. Kanalga video tashlang, sarlavhaga yozing:
+  `id: 32` va `qism: 12` (yoki qisqa: `32 12`, `naruto-1 12-qism`). Bot o'zi shu animega qo'shadi.
+  Botda 11 qism bo'lsa va kanalga 12-qism tashlansa — 12-qism qo'shiladi. Sarlavhani keyin tahrirlasangiz ham qabul qilinadi.
+- Botga (🎞 Qism qo'shish orqali) yuklangan har bir qism kanalga ham `id/qism` sarlavhasi bilan birma-bir nusxalanadi.
+- ID topilmasa yoki sarlavha noto'g'ri bo'lsa, asosiy adminlarga ogohlantirish keladi.
+- Eslatma: bot kanalning ESKI postlarini o'qiy olmaydi (Telegram ruxsat bermaydi), faqat yangi tashlanganlarini.

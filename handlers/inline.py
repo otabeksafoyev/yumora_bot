@@ -1,36 +1,37 @@
-import html
 
 from aiogram import Router
-from aiogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    InlineQuery,
-    InlineQueryResultArticle,
-    InlineQueryResultCachedPhoto,
-    InputTextMessageContent,
-)
+from aiogram.types import InlineQuery, InlineQueryResultArticle, InputTextMessageContent
 
+import keyboards as kb
 import store
+from handlers.user import avg_of
 
 router = Router()
 
 
-def _result(a: dict):
-    link = f"https://t.me/{store.BOT_USERNAME}?start={a['code']}"
-    markup = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="▶️ Tomosha qilish", url=link)]]
-    )
-    title = a["title"]
-    desc = f"📼 {a['eps']} qism • 👁 {a['views']}"
-    text = f"🎬 <b>{html.escape(title)}</b>\n📼 {a['eps']} qism"
-    if a.get("poster_file_id"):
-        return InlineQueryResultCachedPhoto(
-            id=str(a["id"]), photo_file_id=a["poster_file_id"], title=title,
-            description=desc, caption=text, reply_markup=markup,
-        )
+def _result(a: dict, default_thumb) -> InlineQueryResultArticle:
+    """Kaworai uslubidagi ro'yxat qatori: poster + sarlavha + 2 qator tavsif.
+
+    Tanlanganda chatga anime HAVOLASI yuboriladi. Botning o'z chatida bot uni ko'rib,
+    havolani o'chiradi va to'liq kartani (poster + tugmalar) chiqaradi; boshqa chatda esa
+    bu bosiladigan havola bo'lib, do'stlarga ulashishga yaraydi.
+    """
+    genres = a["genres"]
+    icon = kb.genre_emoji(genres[0]) if genres else "🎬"
+    desc = (f"⭐ {avg_of(a):.1f}  •  📺 {a['eps']} qism  •  👁 {a['views']}\n"
+            f"🎭 {' • '.join(genres[:4]) or '—'}")
+    kwargs = {}
+    thumb = a.get("thumb_url") or default_thumb
+    if thumb:
+        kwargs["thumbnail_url"] = thumb
+        kwargs["thumbnail_width"] = 200
+        kwargs["thumbnail_height"] = 280
     return InlineQueryResultArticle(
-        id=str(a["id"]), title=title, description=desc,
-        input_message_content=InputTextMessageContent(message_text=text), reply_markup=markup,
+        id=str(a["id"]),
+        title=f"{icon} {a['title']}",
+        description=desc,
+        input_message_content=InputTextMessageContent(message_text=kb.start_link(a["code"])),
+        **kwargs,
     )
 
 
@@ -42,6 +43,7 @@ async def inline(q: InlineQuery):
     elif len(text) < 2:
         items = []
     else:
-        items = await store.search(text)
+        items = await store.search(text)  # nom YOKI janr bo'yicha
+    dt = await store.default_thumb()
     # Natija hammaga bir xil -> Telegram o'zi ham keshlaydi
-    await q.answer([_result(a) for a in items], cache_time=30, is_personal=False)
+    await q.answer([_result(a, dt) for a in items], cache_time=30, is_personal=False)

@@ -25,7 +25,7 @@ BOT_USERNAME = ""
 # ── to'plamlar (startda bazadan yuklanadi) ──────────────────
 known_users: set[int] = set()
 banned: set[int] = set()
-db_admins: set[int] = set()
+db_admins: dict[int, set] = {}
 
 # ── yig'ilib boradigan buferlar ─────────────────────────────
 _active_buf: set[int] = set()
@@ -42,6 +42,15 @@ _inflight: dict = {}
 
 def is_admin(uid: int) -> bool:
     return uid in config.ADMIN_IDS or uid in db_admins
+
+
+def has_perm(uid: int, perm: str) -> bool:
+    """Asosiy admin (ADMIN_IDS) hammasiga ega; qolganlar — o'zlariga berilgan huquqlar."""
+    if uid in config.ADMIN_IDS:
+        return True
+    if perm == "owner":
+        return False
+    return perm in db_admins.get(uid, ())
 
 
 async def _cached(cache: TTLCache, key, loader: Callable[[], Awaitable]):
@@ -72,7 +81,7 @@ async def _cached(cache: TTLCache, key, loader: Callable[[], Awaitable]):
 async def load_initial() -> None:
     known_users.update(await db.all_user_ids())
     banned.update(await db.banned_ids())
-    db_admins.update(await db.admin_ids())
+    db_admins.update(await db.admins_map())
     log.info("yuklandi: users=%d banned=%d", len(known_users), len(banned))
 
 
@@ -130,7 +139,43 @@ async def stats() -> dict:
 
 async def channels_for(anime_id: int) -> list[dict]:
     allch = await _cached(_misc, "channels", db.channels)
-    return [c for c in allch if c["anime_id"] is None or c["anime_id"] == anime_id]
+    return [c for c in allch if c["kind"] == "sub" and (c["anime_id"] is None or c["anime_id"] == anime_id)]
+
+
+async def news_channels() -> list[dict]:
+    return [c for c in await _cached(_misc, "channels", db.channels) if c["kind"] == "news"]
+
+
+async def genres() -> list:
+    return await _cached(_lists, "genres", db.genres)
+
+
+async def by_genre(genre: str, page: int, size: int) -> list[dict]:
+    return await _cached(_lists, ("g", genre, page, size), lambda: db.by_genre(genre, size + 1, page * size))
+
+
+async def default_poster():
+    return await _cached(_misc, "default_poster", lambda: db.get_setting("default_poster"))
+
+
+async def default_thumb():
+    return await _cached(_misc, "default_thumb", lambda: db.get_setting("default_thumb"))
+
+
+async def set_default_poster(file_id: str, thumb_url: str | None = None) -> None:
+    await db.set_setting("default_poster", file_id)
+    await db.set_setting("default_thumb", thumb_url)
+    _misc.pop("default_poster", None)
+    _misc.pop("default_thumb", None)
+    invalidate_anime()
+
+
+def forget(anime: dict) -> None:
+    """Bitta anime keshini tozalash (masalan, baho berilgandan keyin)."""
+    _anime_id.pop(anime["id"], None)
+    _anime_code.pop(anime["code"], None)
+    for k in [k for k in _lists if k != "genres"]:
+        _lists.pop(k, None)
 
 
 def invalidate_channels() -> None:

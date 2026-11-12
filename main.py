@@ -10,7 +10,7 @@ from aiogram.types import ErrorEvent
 import config
 import db
 import store
-from handlers import admin, inline, user
+from handlers import admin, channel, inline, user
 from middlewares import GateMiddleware
 from session import RobustSession
 
@@ -43,16 +43,18 @@ async def main() -> None:
     dp.callback_query.outer_middleware(gate)
     dp.inline_query.outer_middleware(gate)
     dp.errors.register(on_error)
-    dp.include_routers(admin.router, inline.router, user.router)  # admin birinchi: FSM holatlari ustun
+    dp.include_routers(channel.router, admin.panel, admin.router, inline.router, user.router)  # admin birinchi: FSM holatlari ustun
 
     flusher = asyncio.create_task(store.flush_loop())
+    mirror = asyncio.create_task(channel.mirror_worker(bot))
     try:
         await bot.delete_webhook()
         await dp.start_polling(
-            bot, allowed_updates=["message", "callback_query", "inline_query", "channel_post"]
+            bot, allowed_updates=["message", "callback_query", "inline_query", "channel_post", "edited_channel_post"]
         )
     finally:
         flusher.cancel()
+        mirror.cancel()
         try:
             await store.flush()
         finally:
